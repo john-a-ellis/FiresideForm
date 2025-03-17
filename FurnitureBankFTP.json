@@ -1,0 +1,11 @@
+{
+    "name": "Furniture Bank",
+    "host": "c1106672.sgvps.net",
+    "protocol": "ftp",
+    "port": 21,
+    "secure": true,
+    "username": "john@furniturebank.org",
+    "remotePath": "C:\\Users\\johna\\OneDrive\\Documents\\NearNorthAnalytics\\Client_Repos\\FiresideForm",
+    "password": "1osie##5gc_b",
+    "uploadOnSave": false
+}
