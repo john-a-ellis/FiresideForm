@@ -1,11 +1,9 @@
 <?php
 /*
-Plugin Name: Donation Capacity Manager
+Plugin Name: FB Donation Capacity Manager
+Author: John Ellis - NearNorthAnalytics
 Description: Manages pickup capacity for donations
-Created by: John Ellis - NearNorthAnalytics 
 Version: 1.0
-Requires at least: 6.7
-Requires PHP: 7.4
 */
 
 // Database table creation remains the same as it uses core WordPress functions
@@ -34,12 +32,44 @@ function dcm_admin_page() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'donation_capacity';
     
-    // Handle form submission
+    // Handle form submission for new capacity
     if (isset($_POST['submit_capacity'])) {
-        $wpdb->insert($table_name, array(
-            'pickup_date' => sanitize_text_field($_POST['pickup_date']),
-            'total_capacity' => intval($_POST['total_capacity'])
+        $new_date = sanitize_text_field($_POST['pickup_date']);
+        
+        // Check if date already exists
+        $existing_date = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table_name WHERE pickup_date = %s",
+            $new_date
         ));
+        
+        if ($existing_date > 0) {
+            echo '<div class="error"><p>Error: A capacity entry already exists for ' . esc_html($new_date) . '. Please edit the existing entry instead.</p></div>';
+        } else {
+            $wpdb->insert($table_name, array(
+                'pickup_date' => $new_date,
+                'total_capacity' => intval($_POST['total_capacity'])
+            ));
+            echo '<div class="updated"><p>New capacity entry added successfully.</p></div>';
+        }
+    }
+    
+    // Handle capacity updates
+    if (isset($_POST['update_capacity'])) {
+        $id = intval($_POST['entry_id']);
+        $new_capacity = intval($_POST['new_capacity']);
+        $booked_capacity = intval($_POST['booked_capacity']);
+        
+        // Validate new capacity against booked capacity
+        if ($new_capacity >= $booked_capacity) {
+            $wpdb->update(
+                $table_name,
+                array('total_capacity' => $new_capacity),
+                array('id' => $id)
+            );
+            echo '<div class="updated"><p>Capacity updated successfully.</p></div>';
+        } else {
+            echo '<div class="error"><p>Error: New capacity cannot be less than booked capacity.</p></div>';
+        }
     }
     
     // Handle deletion
@@ -83,12 +113,22 @@ function dcm_admin_page() {
             </thead>
             <tbody>
                 <?php foreach ($entries as $entry): ?>
-                <tr>
+                <tr id="entry-<?php echo $entry->id; ?>">
                     <td><?php echo esc_html($entry->pickup_date); ?></td>
-                    <td><?php echo esc_html($entry->total_capacity); ?></td>
+                    <td class="capacity-cell">
+                        <span class="capacity-display"><?php echo esc_html($entry->total_capacity); ?></span>
+                        <form class="capacity-edit-form" style="display: none;" method="post">
+                            <input type="hidden" name="entry_id" value="<?php echo $entry->id; ?>">
+                            <input type="hidden" name="booked_capacity" value="<?php echo $entry->booked_capacity; ?>">
+                            <input type="number" name="new_capacity" value="<?php echo $entry->total_capacity; ?>" min="<?php echo $entry->booked_capacity; ?>" required>
+                            <button type="submit" name="update_capacity" class="button button-small">Save</button>
+                            <button type="button" class="button button-small cancel-edit">Cancel</button>
+                        </form>
+                    </td>
                     <td><?php echo esc_html($entry->booked_capacity); ?></td>
-                    <td><?php echo esc_html($entry->total_capacity - $entry->booked_capacity); ?></td>
+                    <td class="available-capacity"><?php echo esc_html($entry->total_capacity - $entry->booked_capacity); ?></td>
                     <td>
+                        <button type="button" class="button button-small edit-capacity">Edit</button>
                         <a href="?page=donation-capacity&delete=<?php echo $entry->id; ?>" 
                            onclick="return confirm('Are you sure?')" 
                            class="button button-small">Delete</a>
@@ -98,6 +138,38 @@ function dcm_admin_page() {
             </tbody>
         </table>
     </div>
+
+    <script type="text/javascript">
+    jQuery(document).ready(function($) {
+        // Edit button click handler
+        $('.edit-capacity').click(function() {
+            var row = $(this).closest('tr');
+            row.find('.capacity-display').hide();
+            row.find('.capacity-edit-form').show();
+            $(this).hide();
+        });
+
+        // Cancel button click handler
+        $('.cancel-edit').click(function() {
+            var row = $(this).closest('tr');
+            row.find('.capacity-display').show();
+            row.find('.capacity-edit-form').hide();
+            row.find('.edit-capacity').show();
+        });
+
+        // Form submission handler
+        $('.capacity-edit-form').submit(function() {
+            var newCapacity = parseInt($(this).find('input[name="new_capacity"]').val());
+            var bookedCapacity = parseInt($(this).find('input[name="booked_capacity"]').val());
+            
+            if (newCapacity < bookedCapacity) {
+                alert('New capacity cannot be less than booked capacity');
+                return false;
+            }
+            return true;
+        });
+    });
+    </script>
     <?php
 }
 
@@ -147,9 +219,35 @@ function dcm_modify_date_field($content, $field, $value, $entry_id, $form_id) {
             color: #fff;
         }
         .ui-datepicker-calendar .ui-state-disabled {
-            background: #f00000;
+            background: #ff0000;
             color: #ccc;
         }
+.ui-datepicker-prev .ui-icon,
+.ui-datepicker-next .ui-icon {
+    background-image: none;
+    text-indent: 0;
+    width: auto;
+    height: auto;
+    font-size: 16px;
+    color: #555;
+}
+
+.ui-datepicker-prev .ui-icon:before {
+    content: '←';
+}
+
+.ui-datepicker-next .ui-icon:after {
+    content: '→';
+}
+
+.ui-datepicker-next {
+    text-align: right; /* Align text to the right */
+}
+
+.ui-datepicker-next .ui-icon {
+    float: right; /* Float the icon to the right */
+}
+
     </style>
     <script type='text/javascript'>
     jQuery(document).ready(function($) {
@@ -174,11 +272,22 @@ function dcm_modify_date_field($content, $field, $value, $entry_id, $form_id) {
                     
                     dateField.datepicker({
                         beforeShowDay: function(date) {
+                            // Get today's date without time
+                            var today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            
+                            // If date is today or earlier, disable it
+                            if (date <= today) {
+                                return [false, ''];
+                            }
+                            
                             var dateString = $.datepicker.formatDate('yy-mm-dd', date);
                             return [response.dates.includes(dateString), ''];
                         },
-                        minDate: 0,
-                        dateFormat: 'yy-mm-dd'
+                        minDate: '+1d', // Start from tomorrow
+                        dateFormat: 'yy-mm-dd',
+                        showOtherMonths: true,
+                        selectOtherMonths: true
                     });
                     
                     if (!response.dates.includes(dateField.val())) {
