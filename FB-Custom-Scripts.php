@@ -2,7 +2,7 @@
 /**
  * Plugin Name: FB Gravity Forms Custom Scripts
  * Description: Custom script for copying Billing Address to Pickup Address, updating Shipping Charge, and copying date values in Gravity Forms.
- * Version: 1.5 Author: John Ellis - NearNorthAnalytics
+ * Version: 1.5.2 Author: John Ellis - NearNorthAnalytics
  */
 
 function custom_gravity_forms_copy_address_script() {
@@ -648,4 +648,259 @@ function allow_negative_credit_values($result, $value, $form, $field) {
         'message' => ''
     );
 }
+
+//Function to set the label of the forms next button depending what radio button option is selected.
+function custom_radio_next_button_label() {
+    ?>
+    <script type="text/javascript">
+        console.log('Initializing radio option to next button label script - DEBUG VERSION');
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // Form ID
+            var formId = 13;
+            
+            // Field IDs
+            var radioFieldId = 60;  // ID of the Radio Button group on page 2
+            var pageBreakId = 41;   // ID of the Page Break on page 2
+            var pageNumber = 2;     // The page number these elements are on
+            
+            // Immediately log what we're looking for
+            console.log('DEBUG: Will be monitoring radio buttons with name="input_' + radioFieldId + '"');
+            console.log('DEBUG: Will be updating button with id="gform_next_button_' + formId + '_' + pageBreakId + '"');
+            
+            // List all radio buttons on the page for debugging
+            function logAllRadioButtons() {
+                console.log('DEBUG: Scanning for all radio buttons on the page');
+                var allRadios = jQuery('input[type="radio"]');
+                console.log('DEBUG: Found ' + allRadios.length + ' total radio buttons');
+                
+                allRadios.each(function(index) {
+                    var radio = jQuery(this);
+                    console.log('DEBUG: Radio #' + index + ' - name: ' + radio.attr('name') + ', id: ' + radio.attr('id') + ', value: ' + radio.val());
+                });
+                
+                // Specifically look for our target radio group
+                var targetRadios = jQuery('input[name="input_' + radioFieldId + '"]');
+                console.log('DEBUG: Found ' + targetRadios.length + ' radio buttons with name="input_' + radioFieldId + '"');
+            }
+            
+            // List all buttons on the page for debugging
+            function logAllButtons() {
+                console.log('DEBUG: Scanning for all buttons on the page');
+                var allButtons = jQuery('input[type="button"], button');
+                console.log('DEBUG: Found ' + allButtons.length + ' total buttons');
+                
+                allButtons.each(function(index) {
+                    var button = jQuery(this);
+                    console.log('DEBUG: Button #' + index + ' - id: ' + button.attr('id') + ', value: ' + button.val() + ', text: ' + button.text());
+                });
+                
+                // Specifically look for our target next button
+                var targetButton = jQuery('#gform_next_button_' + formId + '_' + pageBreakId);
+                console.log('DEBUG: Found ' + targetButton.length + ' buttons with id="gform_next_button_' + formId + '_' + pageBreakId + '"');
+            }
+            
+            // Function to update next button label based on selected radio option
+            function updateNextButtonLabel() {
+                // Log current time when function is called
+                console.log('DEBUG: updateNextButtonLabel called at ' + new Date().toISOString());
+                
+                // Check if we're on the correct page first
+                var currentPage = getCurrentPage();
+                console.log('DEBUG: Current page detected as: ' + currentPage);
+                
+                if (currentPage !== pageNumber) {
+                    console.log('DEBUG: Not on target page ' + pageNumber + ', skipping label update');
+                    return;
+                }
+                
+                console.log('DEBUG: On page ' + pageNumber + ', proceeding with radio check');
+                
+                // Log all form elements before checking
+                logAllRadioButtons();
+                logAllButtons();
+                
+                // Find the selected radio option
+                var selectedRadio = jQuery('input[name="input_' + radioFieldId + '"]:checked');
+                console.log('DEBUG: Found ' + selectedRadio.length + ' checked radio buttons with name="input_' + radioFieldId + '"');
+                
+                if (selectedRadio.length > 0) {
+                    // IMPORTANT: Get the value directly from the radio button
+                    var radioValue = selectedRadio.val() || '';
+                    console.log('DEBUG: Selected radio value: "' + radioValue + '"');
+                    
+                    // Determine which button label to use based on the radio value content
+                    var newButtonLabel = '';
+                    
+                    console.log('DEBUG: Checking if value contains "Proceed to Order": ' + (radioValue.indexOf('Proceed to Order') >= 0));
+                    console.log('DEBUG: Checking if value contains "Request a Callback": ' + (radioValue.indexOf('Request a Callback') >= 0));
+                    
+                    if (radioValue.indexOf('Proceed to Order') >= 0) {
+                        newButtonLabel = 'Step 3: When are we picking up?';
+                        console.log('DEBUG: Setting pickup button label');
+                    } else if (radioValue.indexOf('Request a Callback') >= 0) {
+                        newButtonLabel = 'Step 3: Where do we call you?';
+                        console.log('DEBUG: Setting callback button label');
+                    } else {
+                        console.log('DEBUG: No matching phrase found in radio value');
+                    }
+                    
+                    // If we determined a new label, update the next button
+                    if (newButtonLabel) {
+                        console.log('DEBUG: New button label determined: "' + newButtonLabel + '"');
+                        
+                        // Find the next button - for page 2 specifically
+                        var nextButton = jQuery('#gform_next_button_' + formId + '_' + pageBreakId);
+                        console.log('DEBUG: Next button found: ' + nextButton.length);
+                        
+                        if (nextButton.length > 0) {
+                            console.log('DEBUG: Current button value before update: "' + nextButton.val() + '"');
+                            nextButton.val(newButtonLabel);
+                            console.log('DEBUG: Button value after update: "' + nextButton.val() + '"');
+                        } else {
+                            console.error('DEBUG: Next button not found with primary selector');
+                            
+                            // Try alternative selectors for page 2
+                            var alternativeButtons = [
+                                jQuery('#gform_page_' + formId + '_' + pageNumber + ' .gform_next_button'),
+                                jQuery('#gform_page_' + formId + '_' + pageNumber + ' input[type="button"][value^="Next"]'),
+                                jQuery('#gform_page_' + formId + '_' + pageNumber + ' input[type="button"][value^="Step"]'),
+                                jQuery('.gform_page_footer input[type="button"][value^="Next"]'),
+                                jQuery('.gform_page_footer input[type="button"][value^="Step"]')
+                            ];
+                            
+                            console.log('DEBUG: Trying alternative selectors...');
+                            
+                            var buttonFound = false;
+                            alternativeButtons.forEach(function(button, index) {
+                                console.log('DEBUG: Alternative selector #' + index + ' found: ' + button.length + ' buttons');
+                                if (button.length > 0 && !buttonFound) {
+                                    console.log('DEBUG: Using alternative selector #' + index);
+                                    console.log('DEBUG: Current button value before update: "' + button.val() + '"');
+                                    button.val(newButtonLabel);
+                                    console.log('DEBUG: Button value after update: "' + button.val() + '"');
+                                    buttonFound = true;
+                                }
+                            });
+                            
+                            if (!buttonFound) {
+                                console.error('DEBUG: Could not find next button with any selector');
+                            }
+                        }
+                    } else {
+                        console.log('DEBUG: No new button label determined');
+                    }
+                } else {
+                    console.log('DEBUG: No radio option selected yet');
+                }
+            }
+            
+            // Helper function to determine current page number
+            function getCurrentPage() {
+                console.log('DEBUG: getCurrentPage called');
+                
+                // Method 1: Check for visible page
+                var visiblePage = jQuery('#gform_page_' + formId + '_' + pageNumber + ':visible');
+                console.log('DEBUG: Method 1 - Specific page visible: ' + visiblePage.length);
+                if (visiblePage.length > 0) {
+                    return pageNumber;
+                }
+                
+                // Method 2: GF 2.9.4 specific - check current_page in gf_global
+                var gfGlobalPage = (window['gf_global'] && window['gf_global']['current_page'] && window['gf_global']['current_page'][formId]) 
+                    ? window['gf_global']['current_page'][formId] : 'not found';
+                console.log('DEBUG: Method 2 - gf_global current_page: ' + gfGlobalPage);
+                if (window['gf_global'] && window['gf_global']['current_page'] && window['gf_global']['current_page'][formId]) {
+                    return parseInt(window['gf_global']['current_page'][formId]);
+                }
+                
+                // Method 3: Check for current page marker in URL
+                var urlParams = new URLSearchParams(window.location.search);
+                var pageParam = urlParams.get('gf_page');
+                console.log('DEBUG: Method 3 - URL parameter gf_page: ' + pageParam);
+                if (pageParam) {
+                    return parseInt(pageParam);
+                }
+                
+                // Method 4: Count which page div is visible
+                var visiblePages = jQuery('.gform_page:visible');
+                console.log('DEBUG: Method 4 - Visible gform_page elements: ' + visiblePages.length);
+                if (visiblePages.length > 0) {
+                    var pageIds = [];
+                    visiblePages.each(function(index) {
+                        var pageId = jQuery(this).attr('id');
+                        console.log('DEBUG: Visible page #' + index + ' id: ' + pageId);
+                        if (pageId && pageId.includes('gform_page_')) {
+                            // Extract page number from ID
+                            var parts = pageId.split('_');
+                            if (parts.length > 0) {
+                                pageIds.push(parseInt(parts[parts.length - 1]));
+                            }
+                        }
+                    });
+                    if (pageIds.length > 0) {
+                        console.log('DEBUG: Detected page numbers: ' + pageIds.join(', '));
+                        return pageIds[0]; // Return the first visible page number
+                    }
+                }
+                
+                // Default to 1 if we can't determine the page
+                console.log('DEBUG: Could not determine page, defaulting to 1');
+                return 1;
+            }
+            
+            // Monitor radio button changes (specific to page 2)
+            jQuery(document).on('change', 'input[name="input_' + radioFieldId + '"]', function() {
+                console.log('DEBUG: Radio selection changed - event triggered');
+                updateNextButtonLabel();
+            });
+            
+            // The key event for multi-page forms - when a new page is loaded
+            jQuery(document).on('gform_page_loaded', function(event, eventFormId, currentPage) {
+                console.log('DEBUG: gform_page_loaded event - Page ' + currentPage + ' loaded for form ' + eventFormId);
+                if (parseInt(eventFormId) === formId && parseInt(currentPage) === pageNumber) {
+                    console.log('DEBUG: Target page ' + pageNumber + ' loaded, checking radio selection');
+                    // Run immediately and after a short delay to ensure everything is loaded
+                    updateNextButtonLabel();
+                    setTimeout(updateNextButtonLabel, 500);
+                }
+            });
+            
+            // Check on form render
+            jQuery(document).on('gform_post_render', function(event, eventFormId, currentPage) {
+                console.log('DEBUG: gform_post_render event - Form ' + eventFormId + ' rendered, page: ' + (currentPage || 'unknown'));
+                setTimeout(function() {
+                    console.log('DEBUG: Running updateNextButtonLabel after gform_post_render');
+                    updateNextButtonLabel();
+                }, 500);
+            });
+            
+            // Initial check
+            jQuery(document).ready(function() {
+                console.log('DEBUG: Document ready - initial page check');
+                setTimeout(function() {
+                    console.log('DEBUG: Running first timeout check (1000ms)');
+                    updateNextButtonLabel();
+                }, 1000);
+                
+                // Additional check after a longer delay
+                setTimeout(function() {
+                    console.log('DEBUG: Running second timeout check (2500ms)');
+                    updateNextButtonLabel();
+                }, 2500);
+            });
+            
+            // One final check after window load
+            jQuery(window).on('load', function() {
+                console.log('DEBUG: Window loaded - final check');
+                setTimeout(function() {
+                    console.log('DEBUG: Running check after window load');
+                    updateNextButtonLabel();
+                }, 1000);
+            });
+        });
+    </script>
+    <?php
+}
+add_action('wp_footer', 'custom_radio_next_button_label');
 ?>
