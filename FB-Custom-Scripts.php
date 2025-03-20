@@ -2,8 +2,7 @@
 /**
  * Plugin Name: FB Gravity Forms Custom Scripts
  * Description: Custom script for copying Billing Address to Pickup Address, updating Shipping Charge, and copying date values in Gravity Forms.
- * Version: 1.3
- * Author: John Ellis - NearNorthAnalytics
+ * Version: 1.4.8 Author: John Ellis - NearNorthAnalytics
  */
 
 function custom_gravity_forms_copy_address_script() {
@@ -87,9 +86,18 @@ function custom_gravity_forms_shipping_charge_script() {
 
                 // Define your FSAs and corresponding shipping charges here
                 var shippingRates = {
+                    'L0C':325,
+                    'L0E':325,
+                    'L0G':275,
+                    'L1A':300,
+                    'L1C':275,
+                    'l1E':275,
+                    'L1G':250,
                     'L1H':250,
+                    'L1J':250,
                     'L1K':250,
                     'L1L':250,
+                    'L1M':225,
                     'L1N':225,
                     'L1P':225,
                     'L1R':225,
@@ -103,10 +111,20 @@ function custom_gravity_forms_shipping_charge_script() {
                     'L3P':225,
                     'L3R':225,
                     'L3S':225,
+                    'L3T':200,
+                    'L3X':275,
+                    'L3Y':275,
+                    'L4A':250,
+                    'L4B':225,
                     'L4C':225,
                     'L4E':225,
+                    'L4G':250,
+                    'L4J':200,
                     'L4K':200,
+                    'L4L':200,
+                    'L4P':325,
                     'L4S':225,
+                    'L4T':150,
                     'L4V':150,
                     'L4W':150,
                     'L4X':150,
@@ -129,7 +147,7 @@ function custom_gravity_forms_shipping_charge_script() {
                     'L5T':150,
                     'L5V':150,
                     'L5W':150,
-                    'L6A ':200,
+                    'L6A':200,
                     'L6B':225,
                     'L6C':225,
                     'L6E':225,
@@ -138,6 +156,7 @@ function custom_gravity_forms_shipping_charge_script() {
                     'L6K':200,
                     'L6L':200,
                     'L6M':200,
+                    'L6P':150,
                     'L6R':150,
                     'L6S':150,
                     'L6T':150,
@@ -147,12 +166,20 @@ function custom_gravity_forms_shipping_charge_script() {
                     'L6Y':150,
                     'L6Z':150,
                     'L7A':150,
+                    'L7B':250,
+                    'L7E':250,
+                    'L7G':225,
                     'L7L':225,
                     'L7M':225,
                     'L7N':225,
                     'L7P':225,
                     'L7R':225,
                     'L7T':225,
+                    'L9L':300,
+                    'L9N':275,
+                    'L9N':300,
+                    'L9T':225,
+                    'M1B':150,
                     'M1C':150,
                     'M1E':150,
                     'M1G':150,
@@ -169,33 +196,6 @@ function custom_gravity_forms_shipping_charge_script() {
                     'M1V':150,
                     'M1W':150,
                     'M1X':150,
-                    'L0C':325,
-                    'L0E':325,
-                    'L0G':275,
-                    'L1A':300,
-                    'L1C':275,
-                    'l1E':275,
-                    'L1G':250,
-                    'L1M':225,
-                    'L3T':200,
-                    'L3X':275,
-                    'L3Y':275,
-                    'L4A':250,
-                    'L4B':225,
-                    'L4G':250,
-                    'L4J':200,
-                    'L4L ':200,
-                    'L4P':325,
-                    'L4T':150,
-                    'L6P':150,
-                    'L7B':250,
-                    'L7E':250,
-                    'L7G':225,
-                    'L9L':300,
-                    'L9N':275,
-                    'L9N':300,
-                    'L9T':225,
-                    'M1B':150,
                     'M2A':150,
                     'M2B':150,
                     'M2C':150,
@@ -332,8 +332,18 @@ function custom_gravity_forms_shipping_charge_script() {
                     'M8Y':150,
                     'M8Z':150,
                     'M9V':150,
-                    'L1J':250,
-                    'M9W':150
+                    'M9W':150,
+                    'M7A':150,
+                    'M7R':150,
+                    'M7Y':150,
+                    'M9A':150,
+                    'M9B':150,
+                    'M9C':150,
+                    'M9L':150,
+                    'M9M':150,
+                    'M9N':150,
+                    'M9P':150,
+                    'M9R':150
                 };
 
                 if (shippingRates[fsa]) {
@@ -362,4 +372,144 @@ function custom_gravity_forms_shipping_charge_script() {
     <?php
 }
 add_action('wp_footer', 'custom_gravity_forms_shipping_charge_script');
+
+function custom_gravity_forms_item_credit_script() {
+    ?>
+    <script type="text/javascript">
+        console.log('Initializing item credit calculation script - new version');
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // Form ID
+            var formId = 13;
+            
+            // Field IDs
+            var itemFieldIds = [96, 97, 98, 100, 101]; // Item cost fields
+            var deliveryChargeFieldId = 128; // Delivery charge field
+            var creditFieldId = 187; // Credit field
+            
+            // Function to calculate and apply credit
+            function calculateAndApplyCredit() {
+                console.log('Calculating and applying credit');
+                
+                // Get delivery charge
+                var deliveryChargeField = jQuery('#input_' + formId + '_' + deliveryChargeFieldId);
+                var deliveryChargeValue = deliveryChargeField.val() || '0';
+                deliveryChargeValue = deliveryChargeValue.replace(/[^0-9.-]+/g, '');
+                var deliveryCharge = parseFloat(deliveryChargeValue) || 0;
+                console.log('Delivery charge value:', deliveryCharge);
+                
+                // Calculate total item cost
+                var totalItemCost = 0;
+                itemFieldIds.forEach(function(fieldId) {
+                    var itemField = jQuery('#input_' + formId + '_' + fieldId);
+                    var itemValue = itemField.val() || '0';
+                    itemValue = itemValue.replace(/[^0-9.-]+/g, '');
+                    var itemCost = parseFloat(itemValue) || 0;
+                    console.log('Item field ' + fieldId + ' cost:', itemCost);
+                    totalItemCost += itemCost;
+                });
+                console.log('Total item cost:', totalItemCost);
+                
+                // Calculate credit:
+                // If no items, credit is 0
+                // If items < delivery charge, credit is negative of item cost
+                // If items >= delivery charge, credit is negative of delivery charge
+                var credit = 0;
+                
+                if (totalItemCost > 0 && totalItemCost <= deliveryCharge) {
+                    credit = -totalItemCost;
+                } else if (totalItemCost > deliveryCharge) {
+                    credit = -deliveryCharge;
+                }
+                
+                console.log('Final credit calculation:', credit);
+                
+                // Store as plain number
+                var numericCredit = credit.toString();
+                console.log('Numeric credit value for field:', numericCredit);
+                
+                // Update credit field
+                var creditField = jQuery('#input_' + formId + '_' + creditFieldId);
+                if (creditField.length > 0) {
+                    creditField.val(numericCredit);
+                    creditField.trigger('change');
+                    console.log('Updated credit field with value:', numericCredit);
+                } else {
+                    console.error('Credit field not found with primary selector');
+                    
+                    // Try alternative selectors
+                    var alternativeSelectors = [
+                        '#input_' + formId + '_' + creditFieldId + '_1',
+                        'input[name="input_' + creditFieldId + '"]',
+                        '#field_' + formId + '_' + creditFieldId + ' input'
+                    ];
+                    
+                    var found = false;
+                    alternativeSelectors.forEach(function(selector) {
+                        var altField = jQuery(selector);
+                        if (altField.length > 0 && !found) {
+                            altField.val(numericCredit);
+                            altField.trigger('change');
+                            console.log('Updated field using selector:', selector);
+                            found = true;
+                        }
+                    });
+                    
+                    if (!found && typeof gform !== 'undefined' && typeof gform.setFieldValue === 'function') {
+                        try {
+                            gform.setFieldValue(creditFieldId, numericCredit, formId);
+                            console.log('Updated using gform.setFieldValue');
+                        } catch (e) {
+                            console.error('Error using gform.setFieldValue:', e);
+                        }
+                    }
+                }
+            }
+            
+            // Monitor changes to item cost fields
+            itemFieldIds.forEach(function(fieldId) {
+                jQuery(document).on('change keyup blur', '#input_' + formId + '_' + fieldId, function() {
+                    console.log('Item field ' + fieldId + ' changed');
+                    calculateAndApplyCredit();
+                });
+            });
+            
+            // Monitor changes to delivery charge field
+            jQuery(document).on('change keyup blur', '#input_' + formId + '_' + deliveryChargeFieldId, function() {
+                console.log('Delivery charge field changed');
+                calculateAndApplyCredit();
+            });
+            
+            // Calculate on form render
+            jQuery(document).on('gform_post_render', function(event, renderedFormId, currentPage) {
+                if (renderedFormId == formId) {
+                    console.log('Form rendered - calculating credit');
+                    setTimeout(calculateAndApplyCredit, 500);
+                }
+            });
+            
+            // Initial calculation
+            jQuery(document).ready(function() {
+                console.log('Document ready - initial credit calculation');
+                setTimeout(calculateAndApplyCredit, 1000);
+                
+                // Additional attempt after a longer delay
+                setTimeout(calculateAndApplyCredit, 2500);
+            });
+        });
+    </script>
+    <?php
+}
+add_action('wp_footer', 'custom_gravity_forms_item_credit_script');
+
+add_filter('gform_field_label', 'custom_price_field_label_alt', 10, 3);
+function custom_price_field_label_alt($label, $form_id, $field) {
+    error_log("Label filter triggered - Form ID: $form_id, Field ID: {$field->id}, Label: $label");
+    
+    if ($form_id == 13 && $field->id == 187 && $label == 'Additional Costs') {
+    return 'Delivery Credit Applied';
+    }
+    
+    return $label;
+}
 ?>
