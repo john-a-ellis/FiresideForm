@@ -2,7 +2,7 @@
 /**
  * Plugin Name: FB Gravity Forms Custom Scripts
  * Description: Custom script for copying Billing Address to Pickup Address, updating Shipping Charge, and copying date values in Gravity Forms.
- * Version: 1.4.8 Author: John Ellis - NearNorthAnalytics
+ * Version: 1.5 Author: John Ellis - NearNorthAnalytics
  */
 
 function custom_gravity_forms_copy_address_script() {
@@ -376,7 +376,7 @@ add_action('wp_footer', 'custom_gravity_forms_shipping_charge_script');
 function custom_gravity_forms_item_credit_script() {
     ?>
     <script type="text/javascript">
-        console.log('Initializing item credit calculation script - new version');
+        console.log('Initializing item credit calculation script - GF 2.9.4 with fixed quantity');
 
         document.addEventListener('DOMContentLoaded', function () {
             // Form ID
@@ -385,11 +385,14 @@ function custom_gravity_forms_item_credit_script() {
             // Field IDs
             var itemFieldIds = [96, 97, 98, 100, 101]; // Item cost fields
             var deliveryChargeFieldId = 128; // Delivery charge field
-            var creditFieldId = 187; // Credit field
+            var creditFieldId = 187; // Credit field (hidden product field)
             
             // Function to calculate and apply credit
             function calculateAndApplyCredit() {
                 console.log('Calculating and applying credit');
+                
+                // Log the current form total before changes
+                logFormTotal('Before credit calculation');
                 
                 // Get delivery charge
                 var deliveryChargeField = jQuery('#input_' + formId + '_' + deliveryChargeFieldId);
@@ -424,45 +427,145 @@ function custom_gravity_forms_item_credit_script() {
                 
                 console.log('Final credit calculation:', credit);
                 
-                // Store as plain number
+                // Format values for hidden product field
                 var numericCredit = credit.toString();
-                console.log('Numeric credit value for field:', numericCredit);
+                var formattedPrice = '-$ ' + Math.abs(credit).toFixed(2) + ' CAD';
+                console.log('Numeric credit:', numericCredit, 'Formatted price:', formattedPrice);
                 
-                // Update credit field
-                var creditField = jQuery('#input_' + formId + '_' + creditFieldId);
-                if (creditField.length > 0) {
-                    creditField.val(numericCredit);
-                    creditField.trigger('change');
-                    console.log('Updated credit field with value:', numericCredit);
-                } else {
-                    console.error('Credit field not found with primary selector');
+                // Update all parts of the hidden product field
+                updateHiddenProductField(creditFieldId, numericCredit, formattedPrice);
+                
+                // Wait a moment and log the form total after changes
+                setTimeout(function() {
+                    logFormTotal('After credit calculation');
+                }, 500);
+            }
+            
+            // Function to log the current form total
+            function logFormTotal(label) {
+                // Try different selectors for the form total
+                var totalSelectors = [
+                    '#gform_review_' + formId + ' .ginput_total_' + formId,  // Review page total
+                    '.ginput_total_' + formId,                               // Standard total field
+                    '#gform_wrapper_' + formId + ' .ginput_total',           // Generic total field
+                    '#gfield_total_' + formId + '_total',                    // Total field element
+                    '.gform_total'                                           // Any total field
+                ];
+                
+                var totalFound = false;
+                
+                totalSelectors.forEach(function(selector) {
+                    var totalElement = jQuery(selector);
+                    if (totalElement.length > 0) {
+                        var totalValue = totalElement.text() || totalElement.val();
+                        console.log(label + ' - Form total (' + selector + '):', totalValue);
+                        totalFound = true;
+                    }
+                });
+                
+                // Try to get total from gform_product_total global variable
+                if (window.gform_product_total) {
+                    console.log(label + ' - Global product total:', window.gform_product_total);
+                    totalFound = true;
+                }
+                
+                if (!totalFound) {
+                    console.log(label + ' - Could not find form total element');
                     
-                    // Try alternative selectors
-                    var alternativeSelectors = [
-                        '#input_' + formId + '_' + creditFieldId + '_1',
-                        'input[name="input_' + creditFieldId + '"]',
-                        '#field_' + formId + '_' + creditFieldId + ' input'
-                    ];
-                    
-                    var found = false;
-                    alternativeSelectors.forEach(function(selector) {
-                        var altField = jQuery(selector);
-                        if (altField.length > 0 && !found) {
-                            altField.val(numericCredit);
-                            altField.trigger('change');
-                            console.log('Updated field using selector:', selector);
-                            found = true;
+                    // Log all form inputs for debugging
+                    console.log('All form inputs:');
+                    jQuery('#gform_' + formId + ' input').each(function() {
+                        var input = jQuery(this);
+                        var name = input.attr('name');
+                        var id = input.attr('id');
+                        var value = input.val();
+                        if (name && name.includes('total') || id && id.includes('total')) {
+                            console.log('Potential total field:', name || id, 'Value:', value);
                         }
                     });
-                    
-                    if (!found && typeof gform !== 'undefined' && typeof gform.setFieldValue === 'function') {
-                        try {
-                            gform.setFieldValue(creditFieldId, numericCredit, formId);
-                            console.log('Updated using gform.setFieldValue');
-                        } catch (e) {
-                            console.error('Error using gform.setFieldValue:', e);
-                        }
+                }
+                
+                // Log credit field values for reference
+                var creditQuantity = jQuery('input[name="input_' + creditFieldId + '.3"]').val();
+                var creditPrice = jQuery('input[name="input_' + creditFieldId + '.1"]').val();
+                var creditFormatted = jQuery('input[name="input_' + creditFieldId + '.2"]').val();
+                
+                console.log(label + ' - Credit field values:', {
+                    quantity: creditQuantity,
+                    price: creditPrice,
+                    formatted: creditFormatted
+                });
+            }
+            
+            // Function to update all parts of a hidden product field
+            function updateHiddenProductField(fieldId, value, formattedValue) {
+                // Based on your HTML, we need to update three hidden inputs:
+                
+                // 1. Update quantity input (input_187.3) - ALWAYS SET TO 1
+                var quantityInput = jQuery('input[name="input_' + fieldId + '.3"]');
+                if (quantityInput.length > 0) {
+                    quantityInput.val("1");
+                    console.log('Updated quantity input with fixed value: 1');
+                } else {
+                    console.error('Quantity input not found');
+                }
+                
+                // 2. Update price input (input_187.1) with the credit value
+                var priceInput = jQuery('input[name="input_' + fieldId + '.1"]');
+                if (priceInput.length > 0) {
+                    priceInput.val(value);
+                    console.log('Updated price input with value:', value);
+                } else {
+                    console.error('Price input not found');
+                }
+                
+                // 3. Update base price input with formatted value (input_187.2)
+                var basePriceInput = jQuery('input[name="input_' + fieldId + '.2"]');
+                if (basePriceInput.length > 0) {
+                    basePriceInput.val(formattedValue);
+                    console.log('Updated base price input with value:', formattedValue);
+                } else {
+                    console.error('Base price input not found');
+                }
+                
+                // 4. Additional attempt using field ID
+                var ginputBasePriceElement = jQuery('#ginput_base_price_' + formId + '_' + fieldId);
+                if (ginputBasePriceElement.length > 0) {
+                    ginputBasePriceElement.val(formattedValue);
+                    console.log('Updated ginput_base_price element with value:', formattedValue);
+                }
+                
+                var ginputQuantityElement = jQuery('#ginput_quantity_' + formId + '_' + fieldId);
+                if (ginputQuantityElement.length > 0) {
+                    ginputQuantityElement.val("1");
+                    console.log('Updated ginput_quantity element with fixed value: 1');
+                }
+                
+                // 5. Trigger form total recalculation using GF 2.9.4 methods
+                if (window.gf_global && window.gf_global.gfcalc && typeof window.gf_global.gfcalc.runCalcs === 'function') {
+                    // GF 2.9+ method
+                    try {
+                        window.gf_global.gfcalc.runCalcs(formId);
+                        console.log('Triggered gf_global.gfcalc.runCalcs');
+                    } catch (e) {
+                        console.error('Error triggering gf_global.gfcalc.runCalcs:', e);
                     }
+                } else if (typeof gformCalculateTotalPrice === 'function') {
+                    // Fallback to older method
+                    try {
+                        gformCalculateTotalPrice(formId);
+                        console.log('Triggered gformCalculateTotalPrice');
+                    } catch (e) {
+                        console.error('Error triggering gformCalculateTotalPrice:', e);
+                    }
+                }
+                
+                // 6. Extra step for GF 2.9.4: manually trigger the product price calculation
+                try {
+                    jQuery(document).trigger('gform_product_total_changed', [formId]);
+                    console.log('Triggered gform_product_total_changed event');
+                } catch (e) {
+                    console.error('Error triggering product total changed event:', e);
                 }
             }
             
@@ -488,6 +591,24 @@ function custom_gravity_forms_item_credit_script() {
                 }
             });
             
+            // Listen for price calculation events
+            jQuery(document).on('gform_price_change', function(event, formEventId, fieldId) {
+                console.log('Price change detected on form', formEventId, 'field', fieldId);
+                if (formEventId == formId) {
+                    setTimeout(calculateAndApplyCredit, 100);
+                }
+            });
+            
+            // Listen for total change events
+            jQuery(document).on('gform_product_total_changed', function(event, formEventId) {
+                console.log('Product total changed on form', formEventId);
+                if (formEventId == formId) {
+                    setTimeout(function() {
+                        logFormTotal('After total changed event');
+                    }, 200);
+                }
+            });
+            
             // Initial calculation
             jQuery(document).ready(function() {
                 console.log('Document ready - initial credit calculation');
@@ -495,6 +616,11 @@ function custom_gravity_forms_item_credit_script() {
                 
                 // Additional attempt after a longer delay
                 setTimeout(calculateAndApplyCredit, 2500);
+                
+                // Final attempt after page is fully loaded
+                jQuery(window).on('load', function() {
+                    setTimeout(calculateAndApplyCredit, 1000);
+                });
             });
         });
     </script>
@@ -502,6 +628,7 @@ function custom_gravity_forms_item_credit_script() {
 }
 add_action('wp_footer', 'custom_gravity_forms_item_credit_script');
 
+// Set the label of the User Defined Product field
 add_filter('gform_field_label', 'custom_price_field_label_alt', 10, 3);
 function custom_price_field_label_alt($label, $form_id, $field) {
     error_log("Label filter triggered - Form ID: $form_id, Field ID: {$field->id}, Label: $label");
@@ -511,5 +638,14 @@ function custom_price_field_label_alt($label, $form_id, $field) {
     }
     
     return $label;
+}
+// Override Gravity Forms validation to allow negative numbers in credit field
+add_filter('gform_field_validation_13_187', 'allow_negative_credit_values', 10, 4);
+function allow_negative_credit_values($result, $value, $form, $field) {
+    // Always return valid for this specific field
+    return array(
+        'is_valid' => true,
+        'message' => ''
+    );
 }
 ?>

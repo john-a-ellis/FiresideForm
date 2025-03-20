@@ -270,21 +270,33 @@ function dcm_modify_date_field($content, $field, $value, $entry_id, $form_id) {
                         dateField.datepicker('destroy');
                     }
                     
+                    // Inside the script section of dcm_modify_date_field function, replace the datepicker configuration with this:
                     dateField.datepicker({
                         beforeShowDay: function(date) {
                             // Get today's date without time
                             var today = new Date();
                             today.setHours(0, 0, 0, 0);
                             
-                            // If date is today or earlier, disable it
-                            if (date <= today) {
+                            // Calculate minimum allowed date based on the current day of week
+                            var minDate = new Date(today);
+                            var dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, 2 = Tuesday, 3 = Wednesday...
+                            
+                            // If today is Friday (5) or Saturday (6), require dates 3+ days in the future
+                            if (dayOfWeek === 5 || dayOfWeek === 6) {
+                                minDate.setDate(today.getDate() + 3);
+                            } else {
+                                // For all other days, require dates 2+ days in the future
+                                minDate.setDate(today.getDate() + 2);
+                            }
+                            
+                            // If date is earlier than minimum allowed date, disable it
+                            if (date < minDate) {
                                 return [false, ''];
                             }
                             
                             var dateString = $.datepicker.formatDate('yy-mm-dd', date);
                             return [response.dates.includes(dateString), ''];
                         },
-                        minDate: '+1d', // Start from tomorrow
                         dateFormat: 'yy-mm-dd',
                         showOtherMonths: true,
                         selectOtherMonths: true
