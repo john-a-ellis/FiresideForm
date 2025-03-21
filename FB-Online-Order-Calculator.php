@@ -1,40 +1,59 @@
 <?php
-/*
-Plugin Name: FB Online Order Calculator - Pagination Fix
-Author: John Ellis - NearNorthAnalytics
-Description: Fixed calculator for Gravity Forms with pagination error protection.
-Version: 1.5
-*/
+/**
+ * Plugin Name: FB Online Order Calculator
+ * Description: Automatically calculates size categories based on numeric input in Gravity Forms, with special handling for pagination issues
+ * Author: John Ellis - NearNorthAnalytics
+ * Version: 1.6
+ * 
+ * This plugin contains two separate calculator implementations:
+ * 1. Primary implementation: Uses pure vanilla JavaScript for maximum compatibility
+ * 2. Fallback implementation: Uses MutationObserver for difficult edge cases
+ * 
+ * Both implementations avoid jQuery dependency chains and Gravity Forms event handlers
+ * that were causing pagination issues in the original implementation.
+ */
 
-// Add script to footer
+/**
+ * Primary calculator implementation using vanilla JavaScript.
+ * Uses direct DOM methods to avoid Gravity Forms pagination issues.
+ * 
+ * @priority 999 - Ensures this runs after Gravity Forms has initialized
+ */
 add_action('wp_footer', function() {
     ?>
     <script type="text/javascript">
-    /* FB Calculator with pagination fix */
-    
-    // Wait for window load
+    /**
+     * FB Size Calculator - Primary Implementation
+     * 
+     * This calculator converts numeric cubic feet values to size categories.
+     * It uses isolated JavaScript to prevent conflicts with Gravity Forms pagination.
+     */
     window.addEventListener('load', function() {
-        // Create a completely isolated function that won't trigger Gravity Forms pagination
+        // Self-contained calculator object with no external dependencies
         var fbCalculator = {
-            // Store original field value
+            // Track original value to prevent unnecessary updates
             originalValue: null,
             
-            // Initialize calculator
+            /**
+             * Initialize calculator and set up event listeners
+             * @return {boolean} True if initialization succeeded, false otherwise
+             */
             init: function() {
                 var self = this;
                 
-                // Find the source field using pure DOM methods
-                var sourceField = document.getElementById('input_16_24');
-                var targetField = document.getElementById('input_16_25');
+                // Find form fields using direct DOM methods (no jQuery)
+                var sourceField = document.getElementById('input_16_24'); // Cubic feet input
+                var targetField = document.getElementById('input_16_25'); // Size category output
                 
+                // Exit if fields aren't found
                 if (!sourceField || !targetField) {
                     return false;
                 }
                 
-                // Store original value
+                // Store initial value
                 this.originalValue = sourceField.value;
                 
-                // Use direct event handler to avoid jQuery and Gravity Forms
+                // Set up direct event handlers (avoiding jQuery)
                 sourceField.onchange = function() {
                     self.calculate();
                 };
@@ -43,12 +62,20 @@ add_action('wp_footer', function() {
                     self.calculate();
                 };
                 
-                // Initial calculation
+                // Run initial calculation
                 this.calculate();
                 return true;
             },
             
-            // Calculate size
+            /**
+             * Calculate size category based on cubic feet value
+             * Size thresholds:
+             * - Small: < 2 cubic feet
+             * - Medium: 2-11.99 cubic feet
+             * - Large: 12-14.99 cubic feet
+             * - Bulky: 15-39.99 cubic feet
+             * - Xtra Bulky: >= 40 cubic feet
+             */
             calculate: function() {
                 try {
                     var sourceField = document.getElementById('input_16_24');
@@ -58,15 +85,15 @@ add_action('wp_footer', function() {
                         return;
                     }
                     
-                    // Only proceed if value has changed
+                    // Only update if value has changed (prevents event loops)
                     if (sourceField.value === this.originalValue) {
                         return;
                     }
                     
-                    // Store new value
+                    // Update tracked value
                     this.originalValue = sourceField.value;
                     
-                    // Parse value safely
+                    // Parse numeric value safely
                     var calculatedValue = 0;
                     try {
                         calculatedValue = parseFloat(sourceField.value) || 0;
@@ -74,7 +101,7 @@ add_action('wp_footer', function() {
                         calculatedValue = 0;
                     }
                     
-                    // Determine size category
+                    // Determine size category based on value
                     var stringValue = '';
                     if (calculatedValue < 2) {
                         stringValue = 'Small';
@@ -88,7 +115,7 @@ add_action('wp_footer', function() {
                         stringValue = 'Xtra Bulky';
                     }
                     
-                    // Directly set value without using jQuery or triggering events
+                    // Update target field without triggering form events
                     targetField.value = stringValue;
                 } catch(e) {
                     // Silent error handling to avoid breaking page
@@ -96,57 +123,72 @@ add_action('wp_footer', function() {
             }
         };
         
-        // Function to safely try initialization
+        /**
+         * Safely attempt to initialize the calculator
+         * @return {boolean} Success state of initialization
+         */
         function tryInit() {
             try {
                 return fbCalculator.init();
             } catch(e) {
+                console.log("FB Calculator init failed, will retry");
                 return false;
             }
         }
         
-        // Main page load attempt
+        // Initial attempt after a short delay
         setTimeout(tryInit, 1000);
         
-        // Look for popup events using native DOM
-        document.addEventListener('click', function(e) {
-            // Wait for possible popup to open
+        // Monitor for popup events or dynamic content loading
+        document.addEventListener('click', function() {
+            // Delayed attempt after potential popup opening
             setTimeout(tryInit, 1500);
         });
         
-        // Periodic check as a fallback
+        // Fallback periodic check until initialization succeeds
         var checkInterval = setInterval(function() {
             if (tryInit()) {
                 // Successfully initialized, reduce checking frequency
                 clearInterval(checkInterval);
                 
-                // Set a longer interval check for when popup reopens
+                // Set up a less frequent check for form reloads/popups
                 setInterval(tryInit, 5000);
             }
         }, 2000);
         
-        // Expose global initialization function
+        // Make initialization function globally available for other scripts
         window.initFBCalculator = tryInit;
     });
     </script>
     <?php
 }, 999);
 
-// Add a safety fallback that doesn't use jQuery at all
+/**
+ * Fallback calculator implementation using MutationObserver.
+ * This provides a completely separate implementation to ensure the calculation works
+ * even if the primary implementation fails.
+ * 
+ * @priority 1000 - Ensures this runs after the primary implementation
+ */
 add_action('wp_footer', function() {
     ?>
     <script type="text/javascript">
-    // Fallback script that runs after page is fully loaded
+    /**
+     * FB Size Calculator - Fallback Implementation
+     * 
+     * Uses MutationObserver to handle cases where the primary implementation fails.
+     * This is a completely independent implementation as a safety net.
+     */
     window.addEventListener('load', function() {
-        // Wait an extra 3 seconds for everything to stabilize
+        // Delayed execution to ensure form is fully loaded
         setTimeout(function() {
-            // Direct DOM manipulation without any framework dependencies
             try {
-                var input = document.getElementById('input_16_24');
-                var output = document.getElementById('input_16_25');
+                // Use direct DOM methods (no jQuery)
+                var input = document.getElementById('input_16_24');  // Cubic feet input
+                var output = document.getElementById('input_16_25'); // Size category output
                 
                 if (input && output) {
-                    // Create a MutationObserver to watch for value changes
+                    // Use MutationObserver to detect DOM changes
                     var observer = new MutationObserver(function(mutations) {
                         mutations.forEach(function(mutation) {
                             if (mutation.type === 'attributes' && mutation.attributeName === 'value') {
@@ -155,17 +197,25 @@ add_action('wp_footer', function() {
                         });
                     });
                     
-                    // Watch for attribute changes
+                    // Set up observer to watch value attribute
                     observer.observe(input, { 
                         attributes: true, 
                         attributeFilter: ['value'] 
                     });
                     
-                    // Also set up regular events
+                    // Also set up standard event listeners for direct interactions
                     input.addEventListener('change', updateValue);
                     input.addEventListener('input', updateValue);
                     
-                    // Function to update the value
+                    /**
+                     * Update the size category based on input value
+                     * Uses same thresholds as primary implementation:
+                     * - Small: < 2 cubic feet
+                     * - Medium: 2-11.99 cubic feet
+                     * - Large: 12-14.99 cubic feet
+                     * - Bulky: 15-39.99 cubic feet
+                     * - Xtra Bulky: >= 40 cubic feet
+                     */
                     function updateValue() {
                         var value = parseFloat(input.value) || 0;
                         var size = '';
@@ -176,18 +226,19 @@ add_action('wp_footer', function() {
                         else if (value < 40) size = 'Bulky';
                         else size = 'Xtra Bulky';
                         
-                        // Set output value directly
+                        // Update output field directly
                         output.value = size;
                     }
                     
-                    // Initial update
+                    // Run initial calculation
                     updateValue();
                 }
             } catch(e) {
-                // Silent failure
+                // Silent failure to prevent breaking the page
             }
         }, 3000);
     });
     </script>
     <?php
-}, 1000); // Even higher priority
+}, 1000);
+?>

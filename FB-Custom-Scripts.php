@@ -903,4 +903,162 @@ function custom_radio_next_button_label() {
     <?php
 }
 add_action('wp_footer', 'custom_radio_next_button_label');
+
+function custom_date_formatter_script() {
+    ?>
+    <script type="text/javascript">
+        console.log('Initializing date formatter script');
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // Form ID - change if needed
+            var formId = 13;
+            
+            // Field IDs
+            var dateFieldId = 18;  // ID of the date field
+            
+            // Function to format date from YYYY-MM-DD to Month DD, YYYY
+            function formatDate(dateString) {
+                // Check if we have a valid date string
+                if (!dateString || dateString.trim() === '' || dateString === '{date_18}') {
+                    console.log('No valid date found in string: ' + dateString);
+                    return dateString;
+                }
+                
+                try {
+                    // Parse the date
+                    var dateParts = dateString.split('-');
+                    if (dateParts.length !== 3) {
+                        // Try other common formats
+                        var dateObj = new Date(dateString);
+                        if (isNaN(dateObj.getTime())) {
+                            console.log('Could not parse date: ' + dateString);
+                            return dateString;
+                        }
+                    } else {
+                        // Create date from parts (year, month-1, day)
+                        var year = parseInt(dateParts[0]);
+                        var month = parseInt(dateParts[1]) - 1; // JS months are 0-11
+                        var day = parseInt(dateParts[2]);
+                        var dateObj = new Date(year, month, day);
+                    }
+                    
+                    // Format the date
+                    var months = [
+                        'January', 'February', 'March', 'April', 'May', 'June', 
+                        'July', 'August', 'September', 'October', 'November', 'December'
+                    ];
+                    
+                    var formattedDate = months[dateObj.getMonth()] + ' ' + 
+                                        dateObj.getDate() + ', ' + 
+                                        dateObj.getFullYear();
+                    
+                    console.log('Formatted date: ' + formattedDate);
+                    return formattedDate;
+                } catch (e) {
+                    console.error('Error formatting date:', e);
+                    return dateString;
+                }
+            }
+            
+            // Function to update the displayed date
+            function updateDisplayedDate() {
+                console.log('Updating displayed date');
+                
+                // Find the date display element
+                var dateDisplay = document.getElementById('date-display-18');
+                if (!dateDisplay) {
+                    console.log('Date display element not found');
+                    return;
+                }
+                
+                var originalText = dateDisplay.innerHTML;
+                console.log('Original text: ' + originalText);
+                
+                // Check if the mergetag has been replaced already
+                if (originalText.includes('{date_18}')) {
+                    console.log('Merge tag not yet replaced, waiting...');
+                    return; // Wait for Gravity Forms to replace the merge tag
+                }
+                
+                // Extract the date part
+                var prefixText = 'Your Pickup is Scheduled for: ';
+                var dateText = originalText.replace(prefixText, '').trim();
+                
+                // Format the date
+                var formattedDate = formatDate(dateText);
+                
+                // Update the element
+                if (formattedDate !== dateText) {
+                    dateDisplay.innerHTML = prefixText + formattedDate;
+                    console.log('Updated date display to: ' + dateDisplay.innerHTML);
+                }
+            }
+            
+            // Monitor for changes to the date field
+            jQuery(document).on('change', '#input_' + formId + '_' + dateFieldId, function() {
+                console.log('Date field changed');
+                setTimeout(updateDisplayedDate, 500);
+            });
+            
+            // Monitor for form submissions and page changes
+            jQuery(document).on('gform_page_loaded', function(event, formId, currentPage) {
+                console.log('Page loaded - checking date display');
+                setTimeout(updateDisplayedDate, 500);
+                setTimeout(updateDisplayedDate, 1500); // Additional check
+            });
+            
+            // Check when the form is rendered
+            jQuery(document).on('gform_post_render', function(event, formId) {
+                console.log('Form rendered - checking date display');
+                setTimeout(updateDisplayedDate, 500);
+                setTimeout(updateDisplayedDate, 1500); // Additional check
+            });
+            
+            // Set up a mutation observer to detect when the content changes
+            function setupMutationObserver() {
+                var dateDisplay = document.getElementById('date-display-18');
+                if (!dateDisplay) {
+                    console.log('Date display element not found for mutation observer');
+                    setTimeout(setupMutationObserver, 1000); // Try again in a second
+                    return;
+                }
+                
+                console.log('Setting up mutation observer for date display');
+                
+                var observer = new MutationObserver(function(mutations) {
+                    mutations.forEach(function(mutation) {
+                        if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                            console.log('Detected change in date display content');
+                            updateDisplayedDate();
+                        }
+                    });
+                });
+                
+                observer.observe(dateDisplay, { 
+                    childList: true, 
+                    characterData: true,
+                    subtree: true
+                });
+            }
+            
+            // Initial checks
+            jQuery(document).ready(function() {
+                console.log('Document ready - initial date check');
+                setTimeout(updateDisplayedDate, 1000);
+                setTimeout(updateDisplayedDate, 2500);
+                
+                // Set up mutation observer
+                setTimeout(setupMutationObserver, 1000);
+            });
+            
+            // Additional check after window load
+            jQuery(window).on('load', function() {
+                console.log('Window loaded - final date check');
+                setTimeout(updateDisplayedDate, 1000);
+            });
+        });
+    </script>
+    <?php
+}
+add_action('wp_footer', 'custom_date_formatter_script');
 ?>
