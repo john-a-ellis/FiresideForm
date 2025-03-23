@@ -2,7 +2,7 @@
 /**
  * Plugin Name: FB Gravity Forms Custom Scripts
  * Description: Custom functionality for Furniture Bank donation forms, including address copying, shipping calculations, item credits, and date formatting
- * Version: 1.6.3
+ * Version: 1.6.5
  * Author: John Ellis - NearNorthAnalytics
  * 
  * This plugin contains various JavaScript enhancements for Gravity Forms:
@@ -435,24 +435,30 @@ function custom_radio_next_button_label() {
 add_action('wp_footer', 'custom_radio_next_button_label');
 
 /**
- * Formats dates in a user-friendly way (Month DD, YYYY format).
- * Applies to dates shown in the confirmation and review sections of the form.
+ * Function to format a date field value and store it in a target single line text field
+ * Using hardcoded form and field IDs
  */
 function custom_date_formatter_script() {
     ?>
     <script type="text/javascript">
         document.addEventListener('DOMContentLoaded', function () {
-            // Form ID
-            var formId = 13;
+            // Hardcoded IDs
+            var formId = 13;            // Form ID
+            var dateFieldId = 18;       // Date field ID
+            var targetFieldId = 188;    // Target single line text field ID
             
-            // Field IDs
-            var dateFieldId = 18;  // ID of the date field
+            console.log('Initializing date formatter with hardcoded IDs: form=' + formId + 
+                        ', date field=' + dateFieldId + 
+                        ', target field=' + targetFieldId);
+            
+            var formattedDateValue = ''; // Store the formatted value for cross-page persistence
             
             // Function to format date from YYYY-MM-DD to Month DD, YYYY
             function formatDate(dateString) {
                 // Check if we have a valid date string
-                if (!dateString || dateString.trim() === '' || dateString === '{date_18}') {
-                    return dateString;
+                if (!dateString || dateString.trim() === '') {
+                    console.log('No valid date found');
+                    return '';
                 }
                 
                 try {
@@ -462,6 +468,7 @@ function custom_date_formatter_script() {
                         // Try other common formats
                         var dateObj = new Date(dateString);
                         if (isNaN(dateObj.getTime())) {
+                            console.log('Could not parse date: ' + dateString);
                             return dateString;
                         }
                     } else {
@@ -482,86 +489,152 @@ function custom_date_formatter_script() {
                                         dateObj.getDate() + ', ' + 
                                         dateObj.getFullYear();
                     
+                    console.log('Formatted date: ' + formattedDate);
                     return formattedDate;
                 } catch (e) {
-                    console.log('Date formatting error: ' + e.message);
+                    console.error('Error formatting date:', e);
                     return dateString;
                 }
             }
             
-            // Function to update the displayed date
-            function updateDisplayedDate() {
-                // Find the date display element
-                var dateDisplay = document.getElementById('date-display-18');
-                if (!dateDisplay) {
+            // Function to read the date and store the formatted version
+            function processDateField() {
+                console.log('Processing date field');
+                
+                // Get the date value from the source field
+                var dateField = jQuery('#input_' + formId + '_' + dateFieldId);
+                if (dateField.length === 0) {
+                    console.log('Date field not found - might be on a different page');
                     return;
                 }
                 
-                var originalText = dateDisplay.innerHTML;
+                var dateValue = dateField.val();
+                console.log('Original date value: ' + dateValue);
                 
-                // Check if the mergetag has been replaced already
-                if (originalText.includes('{date_18}')) {
-                    return; // Wait for Gravity Forms to replace the merge tag
+                if (!dateValue) {
+                    console.log('No date value to format');
+                    return;
                 }
                 
-                // Extract the date part
-                var prefixText = 'Your Pickup is Scheduled for: ';
-                var dateText = originalText.replace(prefixText, '').trim();
+                // Format the date and store it for later use
+                formattedDateValue = formatDate(dateValue);
+                console.log('Stored formatted date value: ' + formattedDateValue);
                 
-                // Format the date
-                var formattedDate = formatDate(dateText);
+                // Try to update target field if it exists on the current page
+                updateTargetField();
                 
-                // Update the element
-                if (formattedDate !== dateText) {
-                    dateDisplay.innerHTML = prefixText + formattedDate;
-                    console.log('Date formatted: ' + formattedDate);
+                // Store in sessionStorage for cross-page persistence
+                try {
+                    sessionStorage.setItem('gform_formatted_date_' + formId + '_' + dateFieldId, formattedDateValue);
+                    console.log('Saved formatted date to sessionStorage');
+                } catch (e) {
+                    console.error('Error saving to sessionStorage:', e);
+                }
+            }
+            
+            // Function to update the target field with the formatted date
+            function updateTargetField() {
+                console.log('Attempting to update target field');
+                
+                // If we don't have a formatted value yet, try to get it from sessionStorage
+                if (!formattedDateValue) {
+                    try {
+                        formattedDateValue = sessionStorage.getItem('gform_formatted_date_' + formId + '_' + dateFieldId);
+                        console.log('Retrieved formatted date from sessionStorage: ' + formattedDateValue);
+                    } catch (e) {
+                        console.error('Error retrieving from sessionStorage:', e);
+                    }
+                }
+                
+                if (!formattedDateValue) {
+                    console.log('No formatted date value available yet');
+                    return;
+                }
+                
+                // Look for the target single line text field
+                var targetField = jQuery('#input_' + formId + '_' + targetFieldId);
+                if (targetField.length > 0) {
+                    targetField.val(formattedDateValue);
+                    targetField.trigger('change');
+                    console.log('Updated target field with: ' + formattedDateValue);
+                } else {
+                    console.log('Target field not found on current page');
                 }
             }
             
             // Monitor for changes to the date field
             jQuery(document).on('change', '#input_' + formId + '_' + dateFieldId, function() {
-                setTimeout(updateDisplayedDate, 500);
+                console.log('Date field changed');
+                processDateField();
             });
             
-            // Monitor for form submissions and page changes
-            jQuery(document).on('gform_page_loaded', function(event, formId, currentPage) {
-                setTimeout(updateDisplayedDate, 500);
-                setTimeout(updateDisplayedDate, 1500); // Additional check
+            // Monitor for keyup/blur events on date field for more responsive updates
+            jQuery(document).on('keyup blur', '#input_' + formId + '_' + dateFieldId, function() {
+                console.log('Date field keyup/blur');
+                setTimeout(processDateField, 200);
+            });
+            
+            // The key event for multi-page forms - when a new page is loaded
+            jQuery(document).on('gform_page_loaded', function(event, loadedFormId, currentPage) {
+                if (parseInt(loadedFormId) === formId) {
+                    console.log('Form page ' + currentPage + ' loaded');
+                    
+                    // First check if the date field is on this page
+                    var dateField = jQuery('#input_' + formId + '_' + dateFieldId);
+                    if (dateField.length > 0) {
+                        console.log('Date field found on current page');
+                        processDateField();
+                    } else {
+                        console.log('Date field not on current page');
+                    }
+                    
+                    // Then try to update the target field
+                    setTimeout(updateTargetField, 500);
+                }
             });
             
             // Check when the form is rendered
-            jQuery(document).on('gform_post_render', function(event, formId) {
-                setTimeout(updateDisplayedDate, 500);
-                setTimeout(updateDisplayedDate, 1500); // Additional check
+            jQuery(document).on('gform_post_render', function(event, renderedFormId) {
+                if (parseInt(renderedFormId) === formId) {
+                    console.log('Form rendered');
+                    
+                    // Try both processing the date and updating the target field
+                    setTimeout(function() {
+                        processDateField();
+                        updateTargetField();
+                    }, 500);
+                }
             });
             
-            // Set up a mutation observer to detect when the content changes
-            function setupMutationObserver() {
-                var dateDisplay = document.getElementById('date-display-18');
-                if (!dateDisplay) {
-                    setTimeout(setupMutationObserver, 1000); // Try again in a second
-                    return;
-                }
-                
-                var observer = new MutationObserver(function(mutations) {
-                    mutations.forEach(function(mutation) {
-                        if (mutation.type === 'childList' || mutation.type === 'characterData') {
-                            updateDisplayedDate();
-                        }
-                    });
-                });
-                
-                observer.observe(dateDisplay, { 
-                    childList: true, 
-                    characterData: true,
-                    subtree: true
-                });
-            }
-            
-            // Initial checks
+            // Initial processing
             jQuery(document).ready(function() {
-                setTimeout(updateDisplayedDate, 1000);
-                setTimeout(setupMutationObserver, 1000);
+                console.log('Document ready - initial processing');
+                setTimeout(function() {
+                    processDateField();
+                    updateTargetField();
+                }, 1000);
+                
+                // Additional check after a longer delay
+                setTimeout(function() {
+                    processDateField();
+                    updateTargetField();
+                }, 2500);
+            });
+            
+            // Try again after everything is loaded
+            jQuery(window).on('load', function() {
+                console.log('Window loaded');
+                setTimeout(function() {
+                    processDateField();
+                    updateTargetField();
+                }, 1000);
+            });
+            
+            // Also intercept form submission to ensure the target field is populated
+            jQuery('#gform_' + formId).on('submit', function() {
+                console.log('Form submission detected, ensuring target field is populated');
+                updateTargetField();
+                return true; // Allow the form submission to continue
             });
         });
     </script>
@@ -569,52 +642,123 @@ function custom_date_formatter_script() {
 }
 add_action('wp_footer', 'custom_date_formatter_script');
 
-add_action('wp_footer', 'custom_date_formatter_script');
-
 /**
- * Format Scheduled Pickup Date in Order Confirmations
+ * Default Empty Quantity Fields to Zero
  * 
- * This function reformats the date from form field 18 (Scheduled Pickup Date) 
- * from the database format (Y-m-d) to a more user-friendly format with full month name (F d, Y).
- * Example: Changes "2025-03-21" to "March 21, 2025"
+ * This function adds JavaScript that automatically converts any empty quantity
+ * fields to '0' when the second page of Form ID 13 is displayed. This prevents
+ * validation errors and improves user experience by ensuring quantity fields
+ * are properly formatted.
  * 
- * @param mixed $confirmation The confirmation message content
- * @param array $form The form object
- * @param array $entry The entry object containing submitted data
- * @param bool $ajax Whether the submission was made via AJAX
- * @return mixed The modified confirmation with formatted date
+ * The function targets specific product quantity fields in Form ID 13 (34.3, 36.3, 38.3, 37.3, 39.3)
+ * and runs whenever page 2 of the form is displayed.
+ * 
+ * @since 1.5.1
  */
-add_filter('gform_confirmation', 'format_date_in_order_confirmation', 10, 4);
+function custom_gravity_forms_quantity_default_script() {
+    ?>
+    <script type="text/javascript">
+        console.log('Initializing quantity default script');
 
-function format_date_in_order_confirmation($confirmation, $form, $entry, $ajax) {
-    // Only process form with ID 13
-    if ($form['id'] == 13) {
-        // Get the Scheduled Pickup Date value from field 18
-        $date_value = rgar($entry, '18');
-        
-        // Only proceed if we have a date value
-        if (!empty($date_value)) {
-            // Try to parse the date with dash format (Y-m-d)
-            $date_obj = DateTime::createFromFormat('Y-m-d', $date_value);
+        jQuery(document).ready(function($) {
+            // Configuration
+            const formId = 13;
+            const targetPageNumber = 2;
             
-            // If parsing with dashes failed, try slash format (Y/m/d)
-            if (!$date_obj) {
-                $date_obj = DateTime::createFromFormat('Y/m/d', $date_value);
+            // Field mapping: field_id.3 => actual DOM id suffix pattern
+            const fieldMapping = {
+                '34.3': '34_1',
+                '36.3': '36_1',
+                '38.3': '38_1',
+                '37.3': '37_1',
+                '39.3': '39_1'
+            };
+            
+            /**
+             * Set empty quantity fields to zero
+             * Uses the correct selector pattern based on actual DOM inspection
+             */
+            function setEmptyFieldsToZero() {
+                console.log('Setting empty quantity fields to zero');
+                let processedCount = 0;
+                
+                // Process each field using the corrected selector pattern
+                Object.entries(fieldMapping).forEach(function([fieldName, idSuffix]) {
+                    // Create the proper input ID based on DOM inspection
+                    const inputId = 'input_' + formId + '_' + idSuffix;
+                    console.log('Looking for field:', inputId);
+                    
+                    // Find the field
+                    const field = document.getElementById(inputId);
+                    
+                    if (field) {
+                        console.log('Field found:', inputId);
+                        
+                        // Check if empty and set to 0
+                        if (field.value === '' || field.value === null) {
+                            console.log('Setting field ' + inputId + ' to 0');
+                            field.value = '0';
+                            processedCount++;
+                            
+                            // Trigger change event to ensure calculations update
+                            $(field).trigger('change');
+                        } else {
+                            console.log('Field has value:', field.value);
+                        }
+                    } else {
+                        console.log('Field not found:', inputId);
+                    }
+                });
+                
+                console.log('Processed ' + processedCount + ' empty fields');
             }
             
-            // If we successfully parsed the date, reformat it
-            if ($date_obj) {
-                // Format as "Month Day, Year" (e.g., "March 21, 2025")
-                $formatted_date = $date_obj->format('F d, Y');
+            /**
+             * Primary event handler for Gravity Forms page loads
+             */
+            $(document).on('gform_page_loaded', function(event, loadedFormId, currentPage) {
+                console.log('Page loaded - Form:', loadedFormId, 'Page:', currentPage);
                 
-                // Replace all instances of the original date format in the confirmation
-                $confirmation = str_replace($date_value, $formatted_date, $confirmation);
+                if (loadedFormId == formId && currentPage == targetPageNumber) {
+                    console.log('Target page detected, setting empty quantity fields to zero');
+                    
+                    // Small delay to ensure everything is fully loaded
+                    setTimeout(setEmptyFieldsToZero, 300);
+                }
+            });
+            
+            /**
+             * Backup method to check initial page load
+             * This handles direct links and page refreshes
+             */
+            function checkCurrentPage() {
+                // Check if we're on form 13
+                if ($('#gform_' + formId).length === 0) {
+                    return;
+                }
                 
-                // Debug log if needed
-                // error_log("Date formatted for confirmation: $date_value → $formatted_date");
+                // Different ways to detect page 2
+                const currentPage = $('#gform_source_page_number_' + formId).val();
+                const page2Visible = $('#gform_page_' + formId + '_' + targetPageNumber).is(':visible');
+                
+                console.log('Current page detection - Form page:', currentPage, 'Page 2 visible:', page2Visible);
+                
+                if (currentPage == targetPageNumber || page2Visible) {
+                    console.log('Already on page 2, processing fields');
+                    setTimeout(setEmptyFieldsToZero, 500);
+                }
             }
-        }
-    }
-    
-    return $confirmation;
+            
+            // Check current page on initial load
+            checkCurrentPage();
+            
+            // Also run a final check after a longer delay for slower page loads
+            setTimeout(checkCurrentPage, 1500);
+            
+            // Add global function for testing if needed
+            window.fbSetQuantityFieldsToZero = setEmptyFieldsToZero;
+        });
+    </script>
+    <?php
 }
+add_action('wp_footer', 'custom_gravity_forms_quantity_default_script', 999);
