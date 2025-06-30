@@ -2,9 +2,9 @@
 /**
  * Plugin Name: cron script.php
  * Description: Script to manage donation capacity in Gravity Forms database, automatically run via cron job.
- * Version: 1.0.0
+ * Version: 1.0.2
  * Author: John Ellis - NearNorthAnalytics
- * 
+ * modified 2025-06-27 adjusted to not create capacity entries on weekends
  */
 
 // Absolute path to wp-load.php
@@ -23,6 +23,22 @@ function custom_log($message) {
     
     // Also output to screen for CLI debugging
     echo $full_message;
+}
+
+// Helper function to check if a date is a weekend
+function is_weekend($date) {
+    $day_of_week = date('w', strtotime($date)); // 0 = Sunday, 6 = Saturday
+    return ($day_of_week == 0 || $day_of_week == 6);
+}
+
+// Helper function to get next weekday
+function get_next_weekday($date) {
+    $next_date = $date;
+    do {
+        $next_date = date('Y-m-d', strtotime($next_date . ' +1 day'));
+    } while (is_weekend($next_date));
+    
+    return $next_date;
 }
 
 try {
@@ -78,16 +94,34 @@ try {
         custom_log("Existing records before insertion: $existing_records");
         
         $insertion_count = 0;
+        $skipped_weekends = 0;
+        
         while ($existing_records < 62) {
             $latest_existing_date = $wpdb->get_var("SELECT MAX(pickup_date) FROM $table_name");
             
-            $new_date = is_null($latest_existing_date) 
-                ? $earliest_date 
-                : date('Y-m-d', strtotime($latest_existing_date . ' +1 day'));
+            if (is_null($latest_existing_date)) {
+                // If no existing records, start from earliest date
+                $new_date = $earliest_date;
+                // If earliest date is a weekend, get next weekday
+                if (is_weekend($new_date)) {
+                    $new_date = get_next_weekday($new_date);
+                    custom_log("Earliest date was weekend, moved to: $new_date");
+                }
+            } else {
+                // Get next weekday after the latest existing date
+                $new_date = get_next_weekday($latest_existing_date);
+            }
             
             if (strtotime($new_date) > strtotime($latest_date)) {
                 custom_log("Reached latest allowed date");
                 break;
+            }
+            
+            // Double-check that we're not inserting a weekend (safety check)
+            if (is_weekend($new_date)) {
+                custom_log("WARNING: Attempted to insert weekend date: $new_date - skipping");
+                $skipped_weekends++;
+                continue;
             }
             
             $insert_result = $wpdb->insert($table_name, [
@@ -101,11 +135,13 @@ try {
                 break;
             }
             
+            custom_log("Inserted weekday record for: $new_date");
             $insertion_count++;
             $existing_records++;
         }
         
         custom_log("Insertion process complete. Records inserted: $insertion_count");
+        custom_log("Weekend dates skipped: $skipped_weekends");
         custom_log("Final record count: $existing_records");
         
         return true;

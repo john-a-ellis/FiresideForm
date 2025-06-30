@@ -125,6 +125,8 @@ add_action('wp_footer', 'custom_gravity_forms_copy_address_script');
  * Calculates shipping charges based on postal code FSA (first three characters).
  * Updates the shipping charge field automatically when a valid postal code is entered.
  * Only runs when Form 13 is present on the page.
+ * 
+ * FIXED: Now handles back button navigation and pre-populated fields
  */
 function custom_gravity_forms_shipping_charge_script() {
     // Short-circuit for non-form pages
@@ -151,13 +153,15 @@ function custom_gravity_forms_shipping_charge_script() {
             // Field IDs
             var postalCodeFieldId = 146;
             var shippingFieldId = 128;
+            
+            // Flag to prevent duplicate event listeners
+            var isInitialized = false;
 
             // Function to update shipping charge based on FSA
             function updateShippingCharge(fsa, postalCodeElement) {
                 var shippingCharge = 0;
 
                 // Define FSAs and corresponding shipping charges
-                // This lookup table maps postal code prefixes to delivery charges
                 var shippingRates = {
                     'L0C':325,	'L0E':325,	'L0G':275,	'L1A':300,	'L1C':275,	'l1E':275,	'L1G':250,	
                     'L1H':250,	'L1J':250,	'L1K':250,	'L1L':250,	'L1M':225,	'L1N':225,	'L1P':225,	
@@ -200,9 +204,35 @@ function custom_gravity_forms_shipping_charge_script() {
 
                 if (shippingRates[fsa]) {
                     shippingCharge = shippingRates[fsa];
-                    // Update the shipping field value
-                    jQuery('#input_' + formId + '_' + shippingFieldId).val(shippingCharge);
-                    console.log('Shipping charge updated: $' + shippingCharge + ' for FSA ' + fsa);
+                    
+                    // Format the shipping charge exactly as Gravity Forms expects it
+                    var formattedShipping = '$ ' + shippingCharge.toFixed(2) + ' CAD';
+                    
+                    // Update the shipping field with the properly formatted value
+                    var shippingField = jQuery('#input_' + formId + '_' + shippingFieldId);
+                    shippingField.val(formattedShipping);
+                    
+                    // Trigger change event to update calculations
+                    shippingField.trigger('change');
+                    
+                    // Force recalculation with delay
+                    setTimeout(function() {
+                        if (window.gf_global && window.gf_global.gfcalc && typeof window.gf_global.gfcalc.runCalcs === 'function') {
+                            try {
+                                window.gf_global.gfcalc.runCalcs(formId);
+                            } catch (e) {
+                                console.log('Error in GF calculation: ' + e.message);
+                            }
+                        } else if (typeof gformCalculateTotalPrice === 'function') {
+                            try {
+                                gformCalculateTotalPrice(formId);
+                            } catch (e) {
+                                console.log('Error in GF calculation: ' + e.message);
+                            }
+                        }
+                    }, 100);
+                    
+                    console.log('Shipping charge updated: ' + formattedShipping + ' for FSA ' + fsa);
                 } else {
                     // Display error message for FSAs outside the service area
                     alert('The postal code ' + postalCodeElement.val() + ' is outside our service area.');
@@ -211,14 +241,85 @@ function custom_gravity_forms_shipping_charge_script() {
                 }
             }
 
-            // Event listener for postal code field changes
-            jQuery('#input_' + formId + '_' + postalCodeFieldId).on('change', function () {
-                var postalCode = jQuery(this).val().toUpperCase(); // Convert to uppercase
-                jQuery(this).val(postalCode); // Write back to the postal code field
+
+            // Function to handle postal code validation
+            function handlePostalCodeChange() {
+                var postalCode = jQuery('#input_' + formId + '_' + postalCodeFieldId).val().toUpperCase();
+                jQuery('#input_' + formId + '_' + postalCodeFieldId).val(postalCode);
+                
                 if (postalCode.length >= 3) {
                     var fsa = postalCode.substring(0, 3);
-                    updateShippingCharge(fsa, jQuery(this));
+                    updateShippingCharge(fsa, jQuery('#input_' + formId + '_' + postalCodeFieldId));
                 }
+            }
+
+            // Function to initialize or reinitialize the postal code handling
+            function initializePostalCodeHandling() {
+                if (isInitialized) {
+                    console.log('Postal code handling already initialized, skipping...');
+                    return;
+                }
+
+                var postalCodeField = jQuery('#input_' + formId + '_' + postalCodeFieldId);
+                
+                if (postalCodeField.length === 0) {
+                    console.log('Postal code field not found, will retry...');
+                    return;
+                }
+
+                console.log('Setting up postal code event listeners');
+                
+                // Remove any existing event listeners to prevent duplicates
+                postalCodeField.off('change.shippingCharge blur.shippingCharge');
+                
+                // Add event listeners with namespace to allow removal
+                postalCodeField.on('change.shippingCharge blur.shippingCharge', handlePostalCodeChange);
+                
+                // Check if field already has a value (back button scenario)
+                var currentValue = postalCodeField.val();
+                if (currentValue && currentValue.trim() !== '') {
+                    console.log('Found pre-populated postal code: ' + currentValue + ', processing...');
+                    handlePostalCodeChange();
+                }
+                
+                isInitialized = true;
+                console.log('Postal code handling initialized successfully');
+            }
+
+            // Initialize immediately
+            initializePostalCodeHandling();
+
+            // Also try to initialize when the form is rendered (handles AJAX updates)
+            jQuery(document).on('gform_post_render', function(event, renderedFormId, currentPage) {
+                if (renderedFormId == formId) {
+                    console.log('Form rendered, reinitializing postal code handling');
+                    isInitialized = false; // Reset flag to allow reinitialization
+                    setTimeout(initializePostalCodeHandling, 100);
+                }
+            });
+
+            // Handle page loads in multi-page forms
+            jQuery(document).on('gform_page_loaded', function(event, loadedFormId, currentPage) {
+                if (loadedFormId == formId) {
+                    console.log('Page loaded, reinitializing postal code handling');
+                    isInitialized = false; // Reset flag to allow reinitialization
+                    setTimeout(initializePostalCodeHandling, 100);
+                }
+            });
+
+            // Additional fallback for cases where the field appears after DOM ready
+            setTimeout(function() {
+                if (!isInitialized) {
+                    console.log('Fallback initialization attempt');
+                    initializePostalCodeHandling();
+                }
+            }, 1000);
+
+            // Handle browser back/forward navigation
+            window.addEventListener('pageshow', function(event) {
+                console.log('Page show event detected');
+                isInitialized = false; // Reset flag
+                setTimeout(initializePostalCodeHandling, 200);
             });
         });
     </script>
