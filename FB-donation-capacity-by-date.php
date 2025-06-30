@@ -3,7 +3,7 @@
  * Plugin Name: FB Donation Capacity Manager
  * Description: Manages pickup capacity for furniture donations by date, controls available delivery slots, and integrates with Gravity Forms
  * Author: John Ellis - NearNorthAnalytics
- * Version: 1.1
+ * Version: 1.2
  * 
  * This plugin creates a system to manage donation pickup capacity:
  * - Creates a custom database table to track pickup dates and their capacity
@@ -331,12 +331,12 @@ function dcm_modify_date_field($content, $field, $value, $entry_id, $form_id) {
                             var minDate = new Date(today);
                             var dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
                             
-                            // If today is Friday (5) or Saturday (6), require dates 3+ days in the future
+                            // If today is Friday (5) or Saturday (6), require dates 3+ days in the future, , modified to 6 2025-06-25
                             if (dayOfWeek === 5 || dayOfWeek === 6) {
-                                minDate.setDate(today.getDate() + 3);
+                                minDate.setDate(today.getDate() + 6);
                             } else {
-                                // For all other days, require dates 2+ days in the future
-                                minDate.setDate(today.getDate() + 2);
+                                // For all other days, require dates 2+ days in the future, modified to 5 2025-06-25
+                                minDate.setDate(today.getDate() + 5);
                             }
                             
                             // If date is earlier than minimum allowed date, disable it
