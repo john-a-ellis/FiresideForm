@@ -3,13 +3,14 @@
  * Plugin Name: FB Donation Capacity Manager
  * Description: Manages pickup capacity for furniture donations by date, controls available delivery slots, and integrates with Gravity Forms
  * Author: John Ellis - NearNorthAnalytics
- * Version: 1.2
+ * Version: 1.3
  * 
  * This plugin creates a system to manage donation pickup capacity:
  * - Creates a custom database table to track pickup dates and their capacity
  * - Provides an admin interface to manage available capacity
  * - Integrates with Gravity Forms to allow users to select only available dates
  * - Updates capacity records when forms are submitted
+ * - Enhanced validation to prevent manual entry of blocked dates
  */
 
 /**
@@ -214,15 +215,112 @@ function dcm_admin_page() {
 }
 
 /**
- * Modifies the date field in Gravity Forms to only show dates with available capacity.
- * Also applies minimum lead time restrictions based on the day of the week.
+ * Server-side validation to prevent submission with invalid dates
+ * This runs when the form is submitted to validate the manually entered date
  * 
- * @param string $content The field content to be filtered
- * @param object $field The field object
- * @param string $value The field value
- * @param int $entry_id The entry ID
- * @param int $form_id The form ID
- * @return string Modified field content
+ * @param array $validation_result Array containing form validation data with keys:
+ *                                - 'is_valid' (bool): Overall form validation status
+ *                                - 'form' (array): Complete form configuration and field data
+ * @return array Modified validation result with updated validation status and field errors
+ */
+function dcm_validate_pickup_date($validation_result) {
+    $form = $validation_result['form'];
+    
+    // Only validate form 13
+    if ($form['id'] !== 13) {
+        return $validation_result;
+    }
+    
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'donation_capacity';
+    
+    // Get the submitted values
+    $pickup_date = rgpost('input_18');
+    $required_capacity = intval(rgpost('input_141'));
+    
+    if (empty($pickup_date) || $required_capacity <= 0) {
+        return $validation_result; // Skip validation if no date or capacity
+    }
+    
+    // Validate minimum lead time based on day of week
+    $today = new DateTime();
+    $selected_date = new DateTime($pickup_date);
+    $day_of_week = intval($today->format('w')); // 0 = Sunday, 6 = Saturday
+    
+    // Calculate minimum allowed date
+    $min_days_ahead = ($day_of_week === 5 || $day_of_week === 6) ? 6 : 5;
+    $min_date = clone $today;
+    $min_date->add(new DateInterval('P' . $min_days_ahead . 'D'));
+    
+    // Check if selected date meets minimum lead time
+    if ($selected_date < $min_date) {
+        $validation_result['is_valid'] = false;
+        
+        // Add error to the date field
+        foreach ($form['fields'] as &$field) {
+            if ($field->id === 18) {
+                $field->failed_validation = true;
+                $field->validation_message = sprintf(
+                    'Please select a pickup date at least %d days in advance. The earliest available date is %s.',
+                    $min_days_ahead,
+                    $min_date->format('Y-m-d')
+                );
+                break;
+            }
+        }
+        return $validation_result;
+    }
+    
+    // Check if date has sufficient capacity
+    $available_capacity = $wpdb->get_var($wpdb->prepare(
+        "SELECT (total_capacity - booked_capacity) 
+        FROM $table_name 
+        WHERE pickup_date = %s",
+        $pickup_date
+    ));
+    
+    if ($available_capacity === null) {
+        // Date doesn't exist in capacity table
+        $validation_result['is_valid'] = false;
+        
+        foreach ($form['fields'] as &$field) {
+            if ($field->id === 18) {
+                $field->failed_validation = true;
+                $field->validation_message = 'The selected pickup date is not available. Please choose a different date from the calendar.';
+                break;
+            }
+        }
+    } elseif ($available_capacity < $required_capacity) {
+        // Insufficient capacity
+        $validation_result['is_valid'] = false;
+        
+        foreach ($form['fields'] as &$field) {
+            if ($field->id === 18) {
+                $field->failed_validation = true;
+                $field->validation_message = sprintf(
+                    'The selected date does not have sufficient capacity (%d cubic feet available, %d required). Please choose a different date.',
+                    $available_capacity,
+                    $required_capacity
+                );
+                break;
+            }
+        }
+    }
+    
+    return $validation_result;
+}
+add_filter('gform_validation_13', 'dcm_validate_pickup_date');
+
+/**
+ * Enhanced client-side validation and restrictions
+ * This replaces the existing dcm_modify_date_field function
+ * 
+ * @param string $content The HTML content of the field to be filtered
+ * @param object $field The GF_Field object containing field configuration and properties
+ * @param string $value The current value of the field (may be empty for new entries)
+ * @param int $entry_id The entry ID (0 for new entries, positive integer for existing entries)
+ * @param int $form_id The form ID that contains this field
+ * @return string Modified field content with enhanced validation JavaScript and CSS
  */
 function dcm_modify_date_field($content, $field, $value, $entry_id, $form_id) {
     // Only modify the specific date field in form 13
@@ -232,7 +330,7 @@ function dcm_modify_date_field($content, $field, $value, $entry_id, $form_id) {
 
     $ajax_url = admin_url('admin-ajax.php');
     
-    // Custom styles and JavaScript for the datepicker
+    // Enhanced styles and JavaScript for the datepicker with manual entry prevention
     $script = "
     <style>
         /* Datepicker styling */
@@ -295,15 +393,106 @@ function dcm_modify_date_field($content, $field, $value, $entry_id, $form_id) {
         .ui-datepicker-next .ui-icon {
             float: right;
         }
+        
+        /* Error styling for invalid dates */
+        .gfield_error .ginput_container input {
+            border-color: #c42d2d;
+        }
+        .validation_error {
+            color: #c42d2d;
+            font-size: 12px;
+            margin-top: 5px;
+        }
     </style>
     <script type='text/javascript'>
     jQuery(document).ready(function($) {
         var capacityField = $('#input_13_141');
         var dateField = $('#input_13_18');
+        var availableDates = [];
+        var minLeadTime = 5; // Default minimum lead time
+        
+        /**
+         * Calculate minimum allowed date based on current day of week
+         */
+        function getMinimumDate() {
+            var today = new Date();
+            today.setHours(0, 0, 0, 0);
+            var dayOfWeek = today.getDay();
+            
+            // If today is Friday (5) or Saturday (6), require 6+ days ahead
+            var daysAhead = (dayOfWeek === 5 || dayOfWeek === 6) ? 6 : 5;
+            minLeadTime = daysAhead;
+            
+            var minDate = new Date(today);
+            minDate.setDate(today.getDate() + daysAhead);
+            return minDate;
+        }
+        
+        /**
+         * Validate manually entered date
+         */
+        function validateManualDate(dateString) {
+            if (!dateString) return { valid: true };
+            
+            // Check date format
+            var dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+            if (!dateRegex.test(dateString)) {
+                return { 
+                    valid: false, 
+                    message: 'Please enter date in YYYY-MM-DD format or use the calendar picker.' 
+                };
+            }
+            
+            var enteredDate = new Date(dateString);
+            var minDate = getMinimumDate();
+            
+            // Check minimum lead time
+            if (enteredDate < minDate) {
+                return { 
+                    valid: false, 
+                    message: 'Please select a pickup date at least ' + minLeadTime + ' days in advance.' 
+                };
+            }
+            
+            // Check if date is in available dates list
+            if (availableDates.length > 0 && !availableDates.includes(dateString)) {
+                return { 
+                    valid: false, 
+                    message: 'The selected date is not available. Please choose from the calendar.' 
+                };
+            }
+            
+            return { valid: true };
+        }
+        
+        /**
+         * Display validation error
+         */
+        function showValidationError(message) {
+            var fieldContainer = dateField.closest('.gfield');
+            fieldContainer.addClass('gfield_error');
+            
+            // Remove existing error message
+            fieldContainer.find('.validation_error').remove();
+            
+            // Add new error message
+            if (message) {
+                var errorDiv = $('<div class=\"validation_error\">' + message + '</div>');
+                dateField.parent().append(errorDiv);
+            }
+        }
+        
+        /**
+         * Clear validation error
+         */
+        function clearValidationError() {
+            var fieldContainer = dateField.closest('.gfield');
+            fieldContainer.removeClass('gfield_error');
+            fieldContainer.find('.validation_error').remove();
+        }
         
         /**
          * Updates the datepicker to show only dates with available capacity.
-         * Makes an AJAX call to get available dates based on required capacity.
          */
         function updateAvailableDates() {
             var required_capacity = capacityField.val();
@@ -317,52 +506,114 @@ function dcm_modify_date_field($content, $field, $value, $entry_id, $form_id) {
                     capacity: required_capacity
                 },
                 success: function(response) {
+                    availableDates = response.dates;
+                    
                     if (dateField.hasClass('hasDatepicker')) {
                         dateField.datepicker('destroy');
                     }
                     
                     dateField.datepicker({
                         beforeShowDay: function(date) {
-                            // Get today's date without time
-                            var today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            
-                            // Calculate minimum allowed date based on the current day of week
-                            var minDate = new Date(today);
-                            var dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
-                            
-                            // If today is Friday (5) or Saturday (6), require dates 3+ days in the future, , modified to 6 2025-06-25
-                            if (dayOfWeek === 5 || dayOfWeek === 6) {
-                                minDate.setDate(today.getDate() + 6);
-                            } else {
-                                // For all other days, require dates 2+ days in the future, modified to 5 2025-06-25
-                                minDate.setDate(today.getDate() + 5);
-                            }
+                            var minDate = getMinimumDate();
                             
                             // If date is earlier than minimum allowed date, disable it
                             if (date < minDate) {
-                                return [false, ''];
+                                return [false, 'unavailable', 'Date too soon'];
                             }
                             
                             // Check if date is in our list of available dates
                             var dateString = $.datepicker.formatDate('yy-mm-dd', date);
-                            return [response.dates.includes(dateString), ''];
+                            var isAvailable = availableDates.includes(dateString);
+                            return [isAvailable, isAvailable ? 'available' : 'unavailable', 
+                                   isAvailable ? 'Available' : 'Not available'];
                         },
                         dateFormat: 'yy-mm-dd',
                         showOtherMonths: true,
-                        selectOtherMonths: true
+                        selectOtherMonths: true,
+                        onSelect: function(dateText) {
+                            // Clear any validation errors when a valid date is selected from picker
+                            clearValidationError();
+                        }
                     });
                     
-                    // Clear the date if it's no longer available
-                    if (!response.dates.includes(dateField.val())) {
-                        dateField.val('');
+                    // Validate current value if one exists
+                    var currentValue = dateField.val();
+                    if (currentValue) {
+                        var validation = validateManualDate(currentValue);
+                        if (!validation.valid) {
+                            showValidationError(validation.message);
+                        } else {
+                            clearValidationError();
+                        }
                     }
                 }
             });
         }
         
+        // Validate on manual entry (blur and change events)
+        dateField.on('blur change', function() {
+            var dateValue = $(this).val();
+            var validation = validateManualDate(dateValue);
+            
+            if (!validation.valid) {
+                showValidationError(validation.message);
+            } else {
+                clearValidationError();
+            }
+        });
+        
+        // Prevent form submission if date is invalid
+        $('#gform_13').on('submit', function(e) {
+            var dateValue = dateField.val();
+            var validation = validateManualDate(dateValue);
+            
+            if (!validation.valid) {
+                e.preventDefault();
+                showValidationError(validation.message);
+                
+                // Scroll to the date field
+                $('html, body').animate({
+                    scrollTop: dateField.offset().top - 100
+                }, 500);
+                
+                return false;
+            }
+        });
+        
+        // Real-time validation as user types (with debouncing)
+        var typingTimer;
+        dateField.on('keyup', function() {
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(function() {
+                var dateValue = dateField.val();
+                if (dateValue.length >= 10) { // Full date entered
+                    var validation = validateManualDate(dateValue);
+                    if (!validation.valid) {
+                        showValidationError(validation.message);
+                    } else {
+                        clearValidationError();
+                    }
+                }
+            }, 500);
+        });
+        
         // Trigger date update when capacity field changes
-        capacityField.on('change keyup', updateAvailableDates);
+        capacityField.on('change keyup', function() {
+            updateAvailableDates();
+            
+            // Re-validate current date with new capacity
+            var currentValue = dateField.val();
+            if (currentValue) {
+                setTimeout(function() {
+                    var validation = validateManualDate(currentValue);
+                    if (!validation.valid) {
+                        showValidationError(validation.message);
+                    } else {
+                        clearValidationError();
+                    }
+                }, 100);
+            }
+        });
         
         // Initial load if capacity already has a value
         if (capacityField.val()) {
